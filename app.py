@@ -453,13 +453,13 @@ if run:
     competitor_nav_hints = [{"domain": c["domain"]} for c in competitors_metrics]
 
     # ---- Claude generation (parallel) ----
-    overall.progress(72, text="Generating analysis with Gemini (parallel calls)…")
-    log("Gemini is now writing scope, DR analysis, traffic analysis, keyword map, navigation, silos, backlinks strategy, GMB audit, technical summary, and detailed GEO…")
+    overall.progress(72, text="Generating analysis with Gemini (sequential)…")
+    log("Gemini is now writing scope, DR analysis, traffic analysis, keyword map, navigation, silos, GMB audit, technical summary, and detailed GEO sequentially (avoids free-tier rate limits)…")
 
-    def progress_cb(name, done, total):
+    def progress_cb(status_line, done, total):
         pct_ = 72 + int(22 * done / total)
-        overall.progress(pct_, text=f"Gemini: {name} ({done}/{total})")
-        log(f"  ✓ {name}")
+        overall.progress(pct_, text=f"Gemini ({done}/{total})")
+        log(f"  {status_line}")
 
     insights = generate_all(
         api_key=claude_key.strip(),
@@ -483,9 +483,38 @@ if run:
         progress_cb=progress_cb,
     )
 
+    # Surface per-section status as a clear table
+    status_rows = []
+    sections = [
+        ("Scope", insights.scope, "text"),
+        ("DR/DA Analysis", insights.authority, "dict"),
+        ("Traffic Analysis", insights.traffic, "dict"),
+        ("Keyword Research", insights.keyword_map, "dict"),
+        ("Site Navigation", insights.navigation, "dict"),
+        ("Content Silos", insights.silos, "dict"),
+        ("GMB Audit", insights.gmb, "dict"),
+        ("Technical Summary", insights.technical, "dict"),
+        ("GEO Detailed", insights.geo, "dict"),
+    ]
+    for label, val, kind in sections:
+        if kind == "text":
+            ok = bool(val and val.strip())
+            detail = f"{len(val)} chars" if val else "empty"
+        else:
+            ok = bool(val) and any(val.values()) if isinstance(val, dict) else False
+            if isinstance(val, dict):
+                non_empty = sum(1 for v in val.values() if v)
+                detail = f"{non_empty}/{len(val)} fields populated"
+            else:
+                detail = "missing"
+        status_rows.append({"Section": label, "Status": "✓ OK" if ok else "⚠ EMPTY", "Detail": detail})
+    st.subheader("Gemini generation status")
+    st.dataframe(status_rows, width="stretch", hide_index=True)
+
     if insights.errors:
+        st.error("Some sections failed:")
         for e in insights.errors:
-            st.warning(f"Claude warning: {e}")
+            st.code(e)
 
     # ---- Build PPT ----
     overall.progress(95, text="Building PowerPoint deck…")
