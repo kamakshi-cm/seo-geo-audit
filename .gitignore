@@ -1,0 +1,8 @@
+.env
+__pycache__/
+*.pyc
+*.pptx
+.venv/
+venv/
+.streamlit/secrets.toml
+reports/
