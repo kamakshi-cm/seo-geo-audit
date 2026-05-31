@@ -45,33 +45,48 @@ st.title("SEO + GEO Strategy & Audit")
 st.caption("Full strategic deck — competitor analysis, keyword research, content silos, backlink strategy, GMB, technical SEO, and Generative Engine Optimization. Exports to PowerPoint.")
 
 # ---------- SIDEBAR ----------
-with st.sidebar:
-    st.header("Configuration")
-    claude_key = st.text_input(
-        "Gemini API key",
-        type="password",
-        value=os.getenv("GEMINI_API_KEY", "") or os.getenv("GOOGLE_API_KEY", ""),
-        help="Get a free key at https://aistudio.google.com/apikey",
-    )
-    st.divider()
+_env_gemini_key = os.getenv("GEMINI_API_KEY", "") or os.getenv("GOOGLE_API_KEY", "")
+_keys_pre_configured = bool(_env_gemini_key)
 
-    psi_configured = bool(os.getenv("PAGESPEED_API_KEY", "").strip())
-    dfs_configured = dataforseo.is_configured()
-    st.markdown(f"**PageSpeed API**: {'✓ configured' if psi_configured else '○ free quota only'}")
-    st.markdown(f"**DataForSEO API**: {'✓ configured (auto-pull on)' if dfs_configured else '○ not set — using manual paste'}")
-    st.caption("Set keys in .env to enable.")
-    st.divider()
+with st.sidebar:
+    st.header("Audit settings")
+
+    # API config only shown when not pre-configured (so end users on the deployed app
+    # never see the key input or backend status indicators)
+    if not _keys_pre_configured:
+        with st.expander("🔑 API keys (admin only)", expanded=False):
+            claude_key = st.text_input(
+                "Gemini API key",
+                type="password",
+                value="",
+                help="Get a free key at https://aistudio.google.com/apikey",
+            )
+            psi_configured = bool(os.getenv("PAGESPEED_API_KEY", "").strip())
+            dfs_configured = dataforseo.is_configured()
+            st.markdown(f"**PageSpeed API**: {'✓ configured' if psi_configured else '○ free quota only'}")
+            st.markdown(f"**DataForSEO API**: {'✓ configured (auto-pull on)' if dfs_configured else '○ not set — manual paste'}")
+            st.caption("Set keys in .env or Streamlit Cloud secrets.")
+    else:
+        claude_key = _env_gemini_key
 
     model_choice = st.selectbox(
-        "Gemini model",
-        ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite"],
+        "Analysis depth",
+        ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"],
         index=0,
-        help="Flash = fast & free-tier friendly (10 RPM). Pro = better quality but only 5 RPM free. Flash-lite = highest free RPM.",
+        format_func=lambda m: {
+            "gemini-2.5-pro": "Highest quality (slower, ~3-5 min)",
+            "gemini-2.5-flash": "Balanced (faster, ~2-3 min)",
+            "gemini-2.5-flash-lite": "Fastest (lower detail)",
+        }.get(m, m),
+        help="Pro generates the most detailed analysis. Use Flash if Pro is rate-limited.",
     )
     max_pages = st.slider("Max pages to crawl", 5, 100, 25, 5)
     psi_sample = st.slider("PageSpeed sample size", 0, 10, 5)
     num_silos = st.slider("Number of content silos", 4, 10, 8)
     blogs_per_silo = st.slider("Blogs per silo", 5, 12, 10)
+
+    st.divider()
+    st.caption("ℹ️ The generated .pptx is fully editable in PowerPoint, Google Slides, or Keynote — you can re-style, re-order, edit text, swap images, after download.")
 
 
 # ---------- INPUT TABS ----------

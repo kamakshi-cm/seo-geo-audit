@@ -56,12 +56,16 @@ def _safe_json(text: str, fallback):
 
 
 def _call(client: genai.Client, model: str, system: str, user: str,
-          max_tokens: int = 4000, want_json: bool = True, retries: int = 4) -> str:
-    """Call Gemini with thinking disabled + retry on rate-limit errors."""
+          max_tokens: int = 4000, want_json: bool = True, retries: int = 4,
+          temperature: float = 0.45) -> str:
+    """Call Gemini with thinking disabled + retry on rate-limit errors.
+
+    Lower temperature (0.45) for structured JSON tasks → more consistent schema adherence.
+    """
     cfg_kwargs = {
         "system_instruction": system,
         "max_output_tokens": max_tokens,
-        "temperature": 0.7,
+        "temperature": temperature,
         # CRITICAL: Disable thinking so all max_tokens go to actual output
         "thinking_config": types.ThinkingConfig(thinking_budget=0),
     }
@@ -170,43 +174,52 @@ Use ALL competitors from the input. For each, summarize their top pages. Echo UR
 # ---------- 4. KEYWORD RESEARCH + MAPPING ----------
 def keyword_map(client, model: str, domain: str, niche: str,
                 service_pages_hints: list[str], existing_keywords: list[str]) -> dict:
-    system = f"""You are a senior SEO strategist building a detailed keyword map for {domain}.
+    system = f"""You are a senior SEO strategist building an EXHAUSTIVELY detailed keyword map for {domain}.
 
 Niche: {niche or 'inferred from domain'}.
 
-Return STRICT JSON:
+Return STRICT JSON in this shape:
 {{
   "homepage": {{
     "primary": "1 head keyword",
-    "secondary": ["4-6 supporting keywords"]
+    "secondary": ["6-8 supporting keywords"],
+    "search_intent": "commercial|informational|navigational",
+    "monthly_volume_estimate": "rough range, e.g. 1k-5k searches/mo"
   }},
   "service_pages": [
-    {{"page_name": "Service name", "url_slug": "/service-name/",
-     "primary": "primary keyword", "secondary": ["4-5 supporting keywords"],
+    {{"page_name": "Specific service name", "url_slug": "/service-name/",
+     "primary": "primary keyword", "secondary": ["5-7 supporting keywords"],
+     "search_intent": "commercial|informational",
+     "monthly_volume_estimate": "range",
      "sub_services": [
-       {{"name": "Sub-service", "url_slug": "/service-name/sub/", "primary": "kw", "secondary": ["3-4 kw"]}}
+       {{"name": "Specific sub-service name", "url_slug": "/service-name/sub-name/",
+        "primary": "kw", "secondary": ["4-5 kw"]}}
      ]}}
   ],
-  "about_page": {{"primary": "...", "secondary": ["3-4 kw"]}},
-  "contact_page": {{"primary": "...", "secondary": ["3-4 kw"]}},
+  "about_page": {{"primary": "...", "secondary": ["4-5 kw"]}},
+  "contact_page": {{"primary": "...", "secondary": ["4-5 kw"]}},
   "additional_pages": [
-    {{"page_name": "e.g. Pricing", "url_slug": "/pricing/", "primary": "...", "secondary": ["3-4 kw"]}}
+    {{"page_name": "e.g. Pricing / Resources / Industries / Locations", "url_slug": "/...", "primary": "...", "secondary": ["4-5 kw"]}}
   ]
 }}
 
-REQUIREMENTS:
-- Include EXACTLY 6 service pages (or more if the niche demands)
-- Each service page needs 2-4 sub-services
-- Include 3 additional pages (Resources, Pricing, Industries — choose what fits the niche)
-- Keywords MUST be specific to the niche, commercial in intent, and realistic (not made-up)
-- Use real service names — for a CPA firm: "Tax Preparation Services", "Audit & Assurance", "Bookkeeping", etc."""
+HARD REQUIREMENTS — comply exactly:
+- EXACTLY 6 service pages (count them — there must be 6 entries in service_pages array)
+- Each service page MUST have 3 sub-services (count them)
+- EXACTLY 4 additional_pages entries
+- Every "secondary" array must contain 5-8 keywords (not 2 or 3)
+- All keywords must be NICHE-SPECIFIC commercial terms — NOT generic
+- Use REAL service names. For an accounting firm: "Tax Preparation Services", "Audit & Assurance", "Bookkeeping Services", "Business Advisory", "Forensic Accounting", "International Tax". For a SaaS company: actual product/feature names. For a law firm: practice areas like "Personal Injury", "Estate Planning", etc.
+- url_slug MUST be lowercase, hyphenated, descriptive
+- Include monthly_volume_estimate as a range (e.g. "500-1.5k", "2k-8k") based on realistic search demand
+- NO placeholder text like "..." — every field must have real content"""
     payload = {
         "domain": domain,
         "niche": niche,
         "existing_service_hints": service_pages_hints,
         "existing_top_keywords": existing_keywords,
     }
-    text = _call(client, model, system, json.dumps(payload, indent=2), max_tokens=6000)
+    text = _call(client, model, system, json.dumps(payload, indent=2), max_tokens=10000, temperature=0.5)
     return _safe_json(text, {"homepage": {}, "service_pages": [], "additional_pages": []})
 
 
@@ -246,7 +259,7 @@ REQUIREMENTS:
 # ---------- 6. CONTENT SILOS ----------
 def content_silos(client, model: str, domain: str, niche: str,
                   competitor_top_blog_keywords: list[str], num_silos: int = 8, blogs_per_silo: int = 10) -> dict:
-    system = f"""You are building a content strategy for {domain}'s SEO strategy deck.
+    system = f"""You are building an EXHAUSTIVELY DETAILED content strategy for {domain}'s SEO strategy deck.
 
 Niche: {niche or 'inferred from domain'}.
 
@@ -257,23 +270,34 @@ Return STRICT JSON:
 {{
   "silos": [
     {{
-      "silo_name": "Short topic cluster name specific to the niche",
-      "pillar_keyword": "the head keyword this silo will dominate",
-      "audience": "1 short phrase on who reads this",
+      "silo_name": "Short topic cluster name specific to the niche (e.g. 'Construction Industry Accounting')",
+      "pillar_keyword": "the head keyword this silo will dominate (commercial intent)",
+      "audience": "Specific persona phrase — e.g. 'Construction company CFOs and controllers'",
+      "search_volume_estimate": "rough monthly volume range for the pillar keyword",
+      "difficulty_estimate": "low|medium|high",
       "blogs": [
-        {{"title": "Blog post title (~9-12 words, MOFU intent)", "primary_keyword": "kw", "intent": "informational|comparison|how-to"}}
+        {{"title": "Specific MOFU blog post title (~9-14 words)",
+         "primary_keyword": "the exact keyword this post targets",
+         "intent": "informational|comparison|how-to|checklist|guide",
+         "estimated_word_count": "1500-2500 etc",
+         "angle": "1 sentence on the unique angle that differentiates this post from competitors"}}
       ]
     }}
   ]
 }}
 
-CRITICAL CONSTRAINTS:
-- EXACTLY {num_silos} silos — count them
-- EXACTLY {blogs_per_silo} blog ideas per silo — count them
-- Blog titles must be specific to the niche, MOFU, and not generic
-- Mix of formats: "X vs Y", how-to, "best X for Y", "checklist", "step-by-step guide"
+HARD CONSTRAINTS — comply EXACTLY:
+- EXACTLY {num_silos} silos in the array (count them before returning)
+- EXACTLY {blogs_per_silo} blog ideas per silo (count them before returning)
+- Each blog MUST include all 5 fields: title, primary_keyword, intent, estimated_word_count, angle
+- Blog titles must be SPECIFIC and MOFU — not generic. Examples of MOFU titles:
+  * "Cash Method vs. Accrual Method: Which Saves Construction Firms More Tax in 2026"
+  * "How to Reduce QuickBooks Cleanup Time: 7 Workflow Audits Every Bookkeeper Should Run"
+  * "Best Outsourced CFO Services for Tech Startups Raising Series A"
+- Mix intent types: at least 3 comparison ("X vs Y"), 3 how-to, 2 "best X for Y", 2 checklists/guides per silo
 - Avoid duplicating competitor blog topics; suggest unique angles
-- Tailor everything to the niche — e.g. for a CPA firm, silos might be "Cash Flow Management", "Tax Strategy", "Audit Preparation", "QuickBooks Mastery", "Construction Accounting", "Nonprofit Finance", "Business Valuation", "Multi-State Tax Compliance"."""
+- Tailor 100% to the niche — for a CPA firm, silos like "Cash Flow Management", "Tax Strategy", "Audit Preparation", "QuickBooks Mastery", "Construction Accounting", "Nonprofit Finance", "Business Valuation", "Multi-State Tax Compliance"
+- NO placeholder text — every field must have specific, actionable content"""
     payload = {
         "domain": domain,
         "niche": niche,
@@ -281,41 +305,44 @@ CRITICAL CONSTRAINTS:
         "silos_required": num_silos,
         "blogs_per_silo": blogs_per_silo,
     }
-    text = _call(client, model, system, json.dumps(payload, indent=2), max_tokens=14000)
+    text = _call(client, model, system, json.dumps(payload, indent=2), max_tokens=18000, temperature=0.55)
     return _safe_json(text, {"silos": []})
 
 
 # ---------- 8. GMB AUDIT ----------
 def gmb_audit(client, model: str, your_site: str, your_gmb_notes: str,
               competitors: list[dict], niche: str = "") -> dict:
-    system = f"""You are auditing a Google My Business profile for {your_site} against competitors.
+    system = f"""You are doing a DEEPLY DETAILED Google Business Profile (GBP / GMB) audit for {your_site}.
 
 Niche: {niche or 'inferred'}.
 
 Return STRICT JSON:
 {{
-  "missing_elements": ["6-8 SPECIFIC items missing — categories, services, attributes, photos, posts, Q&A seeds, products, descriptions"],
-  "plus_points": ["3-5 things they're doing well, inferred from notes"],
+  "missing_elements": ["8-10 SPECIFIC items missing from the GBP — niche-specific (e.g., for a CPA firm: 'Service area cities not added', 'No appointment booking link', 'Products tile empty', 'Tax preparation category not selected as primary')"],
+  "plus_points": ["4-6 things being done well, inferred from notes"],
   "competitor_strengths": [
-    {{"domain": "competitor.com", "strength": "1 specific sentence on their GMB strength"}}
+    {{"domain": "competitor.com", "strength": "1 specific sentence — what is their GBP doing that we should learn from"}}
   ],
   "modifications": [
-    {{"area": "Business description", "action": "Specific change with example 200-char description text written for this niche"}},
-    {{"area": "Primary category", "action": "Recommended primary category name"}},
-    {{"area": "Additional categories", "action": "List 4-6 additional categories to add"}},
-    {{"area": "Services", "action": "List 10-15 specific services to seed (with brief descriptions)"}},
-    {{"area": "Photos", "action": "Cadence + specific photo content recommendations for the niche"}},
-    {{"area": "Posts", "action": "Posting frequency + 5 specific post topic ideas"}},
-    {{"area": "Reviews", "action": "Review acquisition + response strategy with sample wording"}},
-    {{"area": "Q&A", "action": "5 seed Q&A pairs with answers"}},
-    {{"area": "Products", "action": "Niche-specific product/service tile recommendations"}},
-    {{"area": "Attributes", "action": "Specific attributes to enable (e.g. 'Online appointments', 'Free consultation')"}}
+    {{"area": "Business description", "action": "Write a complete 750-character description specifically for this business, niche-specific, with primary keyword in first sentence and natural keyword variation"}},
+    {{"area": "Primary category", "action": "Exact GBP category name (e.g. 'Accountant', 'Tax preparation service', 'Law firm') with reasoning"}},
+    {{"area": "Additional categories", "action": "List 5-7 specific additional GBP categories with reasoning per choice"}},
+    {{"area": "Services", "action": "List 12-15 specific services to add to the Services tab, each with name + 1-line description (200 chars max)"}},
+    {{"area": "Service areas", "action": "Specific cities and counties to add as service areas"}},
+    {{"area": "Photos", "action": "Specific photo categories + cadence + 10 concrete photo ideas tailored to the niche"}},
+    {{"area": "Posts", "action": "Posting strategy + frequency + 7 specific post topic ideas with sample headlines"}},
+    {{"area": "Reviews", "action": "Review acquisition strategy + 3 sample review-request email templates + 2 sample owner-response templates (one for positive, one for negative)"}},
+    {{"area": "Q&A", "action": "7 seed questions with full answers — owner should post these themselves"}},
+    {{"area": "Products / Services tiles", "action": "Niche-specific tile recommendations with sample tile titles and descriptions"}},
+    {{"area": "Attributes", "action": "Specific attributes to enable (e.g. 'Online appointments', 'Free consultation', 'Wheelchair accessible', 'LGBTQ+ friendly')"}},
+    {{"area": "Booking link / Appointment URL", "action": "Specific recommendation on what to link to"}},
+    {{"area": "Holidays & special hours", "action": "Practice for updating these proactively"}}
   ]
 }}
 
-Be HIGHLY specific. Every action should have niche-specific wording. Don't be generic."""
+Be EXTREMELY specific to the niche. NO generic advice. Provide real example wording where the schema asks for it (sample descriptions, post titles, Q&A answers)."""
     payload = {"your_site": your_site, "your_gmb_notes": your_gmb_notes, "competitors": competitors, "niche": niche}
-    text = _call(client, model, system, json.dumps(payload, indent=2), max_tokens=5000)
+    text = _call(client, model, system, json.dumps(payload, indent=2), max_tokens=8000, temperature=0.5)
     return _safe_json(text, {"missing_elements": [], "plus_points": [], "competitor_strengths": [], "modifications": []})
 
 
@@ -343,27 +370,37 @@ Provide EXACTLY 10 priority recommendations, ranked by impact-to-effort."""
 
 # ---------- 10. DETAILED GEO ANALYSIS ----------
 def geo_detailed(client, model: str, payload: dict, niche: str = "") -> dict:
-    system = f"""You are writing the detailed Generative Engine Optimization (GEO) section of a strategy deck.
+    system = f"""You are writing an EXHAUSTIVELY detailed Generative Engine Optimization (GEO) section.
 
 Niche: {niche or 'inferred'}.
 
 Return STRICT JSON:
 {{
-  "overview": "4-5 sentences explaining what GEO is and why it specifically matters for this niche.",
-  "ai_crawler_assessment": "4-5 sentences on which AI crawlers (GPTBot, ChatGPT-User, ClaudeBot, PerplexityBot, Google-Extended, OAI-SearchBot) are allowed/blocked and the implications. Cite the actual numbers from the audit.",
-  "llms_txt_recommendation": "3-4 sentences on llms.txt — what it is, whether the site has one, and a concrete starter template for this niche.",
-  "citation_readiness_analysis": "4-5 sentences on whether the site's content is structured for citation by ChatGPT/Perplexity (quotable stats, lists, tables, definitions, authors, dates). Cite specific findings from the audit.",
-  "ai_overview_strategy": "4-5 sentences on optimizing for Google AI Overviews specifically in this niche.",
-  "structured_data_strategy": "3-4 sentences on which Schema.org types (FAQPage, HowTo, Article, LocalBusiness, Service, Review) to prioritize for the niche.",
-  "entity_optimization": "3-4 sentences on building entity authority — Wikipedia, Wikidata, Knowledge Graph, niche citations.",
+  "overview": "5-7 sentences explaining what GEO is and why it specifically matters for this niche. Cite which AI engines matter most for this niche's customers.",
+  "ai_crawler_assessment": "5-7 sentences on which AI crawlers (GPTBot, ChatGPT-User, ClaudeBot, PerplexityBot, Google-Extended, OAI-SearchBot, Applebot-Extended, Meta-ExternalAgent, CCBot) are allowed/blocked and the implications. Cite the actual audit numbers.",
+  "llms_txt_recommendation": "5-7 sentences on llms.txt — what it is, whether the site has one, and a concrete starter file content tailored to this niche (give example sections).",
+  "citation_readiness_analysis": "6-8 sentences on whether the site's content is structured for citation by ChatGPT/Perplexity (quotable stats, lists, tables, definitions, authors, dates). Cite specific findings from the audit data.",
+  "ai_overview_strategy": "6-8 sentences on optimizing for Google AI Overviews in this niche. Include specific tactics like passage-level optimization, definition boxes, comparison tables.",
+  "structured_data_strategy": "5-7 sentences naming SPECIFIC Schema.org types (FAQPage, HowTo, Article, LocalBusiness, Service, Review, AggregateRating, Person, Organization, BreadcrumbList) prioritized for this niche with reasoning. Mention which pages get which schema.",
+  "entity_optimization": "5-7 sentences on building entity authority — Wikipedia/Wikidata, Knowledge Graph, niche citations (mention specific authoritative sites in this niche).",
+  "answer_engine_query_targets": [
+    "Specific user queries this niche's customers ask ChatGPT/Perplexity (15-20 sample queries we should rank as the cited answer for)"
+  ],
+  "content_format_recommendations": [
+    {{"format": "e.g. 'Comparison table'", "where_to_use": "specific page templates", "why_LLMs_cite_it": "1 sentence"}}
+  ],
   "geo_action_plan": [
-    {{"action": "Specific action", "why": "Why it matters", "priority": "high|medium|low", "owner_role": "SEO|Content|Dev"}}
+    {{"action": "Specific action — niche-specific", "why": "Why it matters for this site", "priority": "high|medium|low", "owner_role": "SEO|Content|Dev", "estimated_effort": "S|M|L"}}
   ]
 }}
 
-Provide EXACTLY 12 action plan items, all niche-specific."""
+REQUIREMENTS:
+- EXACTLY 15 items in geo_action_plan
+- EXACTLY 15-20 items in answer_engine_query_targets (real queries customers would ask LLMs)
+- EXACTLY 6-8 items in content_format_recommendations
+- All recommendations niche-specific. NO generic GEO advice."""
     payload_with_niche = {**payload, "niche": niche}
-    text = _call(client, model, system, json.dumps(payload_with_niche, indent=2), max_tokens=5500)
+    text = _call(client, model, system, json.dumps(payload_with_niche, indent=2), max_tokens=10000, temperature=0.5)
     return _safe_json(text, {})
 
 

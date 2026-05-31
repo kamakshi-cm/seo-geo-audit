@@ -952,31 +952,80 @@ def slide_ai_crawler_table(prs, ctx):
            status_col=2)
 
 
-def slide_geo_action_plan(prs, ctx):
+def slide_geo_strategy_text(prs, ctx):
+    """GEO narrative slide — llms.txt, citation readiness, AI overview, structured data, entities."""
     blank = prs.slide_layouts[6]
     s = prs.slides.add_slide(blank)
-    _add_title(s, "GEO Action Plan", "Tactics to win citations in AI answer engines")
+    _add_title(s, "GEO Strategy — Detailed Narrative", "All five GEO pillars for your niche")
     _accent_bar(s, color=TEAL)
     geo = ctx["insights"].get("geo", {})
+    if not isinstance(geo, dict):
+        geo = {}
 
     paras = [
-        ("llms.txt Recommendation", {"size": 13, "bold": True, "color": TEAL}),
-        (geo.get("llms_txt_recommendation", ""), {"size": 11}),
-        ("Citation Readiness Analysis", {"size": 13, "bold": True, "color": TEAL, "space_before": 8}),
-        (geo.get("citation_readiness_analysis", ""), {"size": 11}),
-        ("AI Overview Strategy", {"size": 13, "bold": True, "color": TEAL, "space_before": 8}),
-        (geo.get("ai_overview_strategy", ""), {"size": 11}),
+        ("llms.txt Recommendation", {"size": 12, "bold": True, "color": TEAL}),
+        (geo.get("llms_txt_recommendation", ""), {"size": 10}),
+        ("Citation Readiness", {"size": 12, "bold": True, "color": TEAL, "space_before": 6}),
+        (geo.get("citation_readiness_analysis", ""), {"size": 10}),
+        ("AI Overview Strategy", {"size": 12, "bold": True, "color": TEAL, "space_before": 6}),
+        (geo.get("ai_overview_strategy", ""), {"size": 10}),
+        ("Structured Data Strategy", {"size": 12, "bold": True, "color": TEAL, "space_before": 6}),
+        (geo.get("structured_data_strategy", ""), {"size": 10}),
+        ("Entity Optimization", {"size": 12, "bold": True, "color": TEAL, "space_before": 6}),
+        (geo.get("entity_optimization", ""), {"size": 10}),
     ]
-    _add_paragraphs(s, Inches(0.5), Inches(1.5), Inches(12.3), Inches(3.6), paras)
+    _add_paragraphs(s, Inches(0.5), Inches(1.5), Inches(12.3), Inches(5.6), paras)
 
-    actions = geo.get("geo_action_plan", []) or []
-    if actions:
-        items = []
-        for a in actions[:8]:
+
+def slide_geo_query_targets(prs, ctx):
+    """AI answer-engine queries we want to be cited for."""
+    blank = prs.slide_layouts[6]
+    geo = ctx["insights"].get("geo", {})
+    if not isinstance(geo, dict):
+        return
+    queries = [q for q in (geo.get("answer_engine_query_targets", []) or []) if isinstance(q, str) and q.strip()]
+    formats = [f for f in (geo.get("content_format_recommendations", []) or []) if isinstance(f, dict)]
+    if not queries and not formats:
+        return
+    s = prs.slides.add_slide(blank)
+    _add_title(s, "AI Answer-Engine Targets",
+               "Queries we should rank as the cited source for + content formats LLMs prefer")
+    _accent_bar(s, color=TEAL)
+
+    if queries:
+        _bullets(s, Inches(0.5), Inches(1.5), Inches(6.0), Inches(5.5),
+                 queries[:18], title="Target queries to win citations for", title_color=TEAL, size=10)
+    if formats:
+        items = [f"{f.get('format', '')} — {f.get('where_to_use', '')}" for f in formats[:8]]
+        _bullets(s, Inches(6.8), Inches(1.5), Inches(6.0), Inches(5.5),
+                 items, title="Content formats LLMs cite most", title_color=AMBER, size=10)
+
+
+def slide_geo_action_plan(prs, ctx):
+    """The 15-item GEO action plan, spread across 2 slides if needed."""
+    blank = prs.slide_layouts[6]
+    geo = ctx["insights"].get("geo", {})
+    if not isinstance(geo, dict):
+        return
+    actions = [a for a in (geo.get("geo_action_plan", []) or []) if isinstance(a, dict)]
+    if not actions:
+        return
+
+    chunks = [actions[i:i + 8] for i in range(0, len(actions), 8)]
+    for idx, chunk in enumerate(chunks):
+        s = prs.slides.add_slide(blank)
+        _add_title(s, f"GEO Action Plan ({idx + 1}/{len(chunks)})",
+                   "Prioritised tactics to capture AI search citations")
+        _accent_bar(s, color=TEAL)
+        rows = []
+        for a in chunk:
             pri = (a.get("priority", "") or "").upper()
-            items.append(f"[{pri}]  {a.get('action', '')}  —  {a.get('why', '')}")
-        _bullets(s, Inches(0.5), Inches(5.2), Inches(12.3), Inches(1.9),
-                 items, title="Action items", title_color=NAVY, size=10)
+            owner = a.get("owner_role", "") or ""
+            effort = a.get("estimated_effort", "") or ""
+            rows.append([pri, a.get("action", ""), a.get("why", ""), owner, effort])
+        _table(s, Inches(0.3), Inches(1.5), Inches(12.7), Inches(0.4 + 0.55 * (len(rows) + 1)),
+               headers=["Priority", "Action", "Why it matters", "Owner", "Effort"],
+               rows=rows, col_widths=[1.0, 4.5, 5.0, 1.2, 1.0])
 
 
 def slide_recommendations(prs, ctx):
@@ -1107,6 +1156,8 @@ def build_report(out_path: str, ctx: dict) -> str:
 
     safe("geo_overview", slide_geo_overview, prs, ctx)
     safe("ai_crawler", slide_ai_crawler_table, prs, ctx)
+    safe("geo_strategy_text", slide_geo_strategy_text, prs, ctx)
+    safe("geo_query_targets", slide_geo_query_targets, prs, ctx)
     safe("geo_action_plan", slide_geo_action_plan, prs, ctx)
 
     safe("recommendations", slide_recommendations, prs, ctx)
