@@ -557,6 +557,12 @@ if run:
     elapsed = int(time.time() - t_start)
     log(f"**Done in {elapsed}s** → `{out_path}`")
 
+    slide_errors = ctx_payload.get("_slide_errors", []) or []
+    if slide_errors:
+        st.warning(f"Deck generated but {len(slide_errors)} slide(s) had rendering issues (other slides are fine):")
+        for se in slide_errors:
+            st.caption(f"• {se}")
+
     st.success(f"Strategy deck generated in {elapsed}s.")
 
     # KPI row

@@ -464,9 +464,13 @@ def slide_keyword_homepage(prs, ctx):
     _add_title(s, "Keyword Research — Homepage", "Primary + supporting keywords for the home page")
     _accent_bar(s)
     km = ctx["insights"].get("keyword_map", {})
-    home = km.get("homepage", {}) or {}
-    primary = home.get("primary", "")
-    secondary = home.get("secondary", []) or []
+    if not isinstance(km, dict):
+        km = {}
+    home = km.get("homepage", {})
+    if not isinstance(home, dict):
+        home = {}
+    primary = str(home.get("primary", "") or "")
+    secondary = [str(x) for x in (home.get("secondary", []) or []) if x]
 
     _add_paragraphs(s, Inches(0.5), Inches(1.6), Inches(12.3), Inches(1.5),
                     [("Primary keyword", {"size": 14, "bold": True, "color": TEAL}),
@@ -479,7 +483,9 @@ def slide_keyword_services(prs, ctx):
     """Service pages keyword mapping. Splits across slides if many services."""
     blank = prs.slide_layouts[6]
     km = ctx["insights"].get("keyword_map", {})
-    services = km.get("service_pages", []) or []
+    if not isinstance(km, dict):
+        km = {}
+    services = [s for s in (km.get("service_pages", []) or []) if isinstance(s, dict)]
     if not services:
         return
     chunks = [services[i:i + 3] for i in range(0, len(services), 3)]
@@ -515,7 +521,7 @@ def slide_keyword_services(prs, ctx):
             ]
             for sk in (svc.get("secondary", []) or [])[:5]:
                 content.append((f"  • {sk}", {"size": 9}))
-            subs = svc.get("sub_services", []) or []
+            subs = [s for s in (svc.get("sub_services", []) or []) if isinstance(s, dict)]
             if subs:
                 content.append(("Sub-services:", {"size": 10, "bold": True, "color": NAVY, "space_before": 6}))
                 for sub in subs[:4]:
@@ -529,14 +535,21 @@ def slide_keyword_additional(prs, ctx):
     _add_title(s, "Keyword Research — Other Key Pages", "About, Contact & additional pages")
     _accent_bar(s)
     km = ctx["insights"].get("keyword_map", {})
+    if not isinstance(km, dict):
+        km = {}
 
     pages = []
-    if km.get("about_page"):
-        pages.append({"page_name": "About", "url_slug": "/about/", **km["about_page"]})
-    if km.get("contact_page"):
-        pages.append({"page_name": "Contact", "url_slug": "/contact/", **km["contact_page"]})
+    about = km.get("about_page")
+    if isinstance(about, dict):
+        pages.append({"page_name": "About", "url_slug": about.get("url_slug", "/about/"),
+                      "primary": about.get("primary", ""), "secondary": about.get("secondary", []) or []})
+    contact = km.get("contact_page")
+    if isinstance(contact, dict):
+        pages.append({"page_name": "Contact", "url_slug": contact.get("url_slug", "/contact/"),
+                      "primary": contact.get("primary", ""), "secondary": contact.get("secondary", []) or []})
     for ap in km.get("additional_pages", []) or []:
-        pages.append(ap)
+        if isinstance(ap, dict):
+            pages.append(ap)
 
     if not pages:
         return
@@ -573,8 +586,10 @@ def slide_navigation(prs, ctx):
     _add_title(s, "Recommended Website Navigation", "Information architecture for primary nav")
     _accent_bar(s)
     nav = ctx["insights"].get("navigation", {})
-    items = nav.get("nav_items", []) or []
-    rationale = nav.get("rationale", "")
+    if not isinstance(nav, dict):
+        nav = {}
+    items = [n for n in (nav.get("nav_items", []) or []) if isinstance(n, dict)]
+    rationale = str(nav.get("rationale", "") or "")
 
     # Draw nav like a tree
     tb = s.shapes.add_textbox(Inches(0.5), Inches(1.5), Inches(12.3), Inches(4.5))
@@ -593,11 +608,15 @@ def slide_navigation(prs, ctx):
         p.font.bold = True
         p.font.color.rgb = TEAL
         for child in (nav_item.get("children", []) or []):
+            if not isinstance(child, dict):
+                continue
             p2 = tf.add_paragraph()
             p2.text = f"    ◦ {child.get('label', '')}"
             p2.font.size = Pt(11)
             p2.font.color.rgb = NAVY
             for grandchild in (child.get("children", []) or []):
+                if not isinstance(grandchild, dict):
+                    continue
                 p3 = tf.add_paragraph()
                 p3.text = f"        – {grandchild.get('label', '')}"
                 p3.font.size = Pt(10)
@@ -613,7 +632,10 @@ def slide_content_strategy_intro(prs, ctx):
     s = prs.slides.add_slide(blank)
     _add_title(s, "Content Strategy — Topic Silos", "Middle-of-funnel blog ideas grouped by silo")
     _accent_bar(s)
-    silos = ctx["insights"].get("silos", {}).get("silos", []) or []
+    silos_raw = ctx["insights"].get("silos", {})
+    if not isinstance(silos_raw, dict):
+        silos_raw = {}
+    silos = [s for s in (silos_raw.get("silos", []) or []) if isinstance(s, dict)]
 
     paras = [
         ("Approach", {"size": 14, "bold": True, "color": TEAL}),
@@ -1035,46 +1057,63 @@ def slide_closing(prs, ctx):
 
 # ---------- MASTER BUILDER ----------
 def build_report(out_path: str, ctx: dict) -> str:
+    """Build the deck. Each slide is wrapped in try/except so a malformed
+    Gemini response on ONE section never aborts the whole deck."""
+    import traceback
     prs = Presentation()
     prs.slide_width = Inches(13.333)
     prs.slide_height = Inches(7.5)
+    errors: list[str] = []
 
-    slide_cover(prs, ctx)
-    slide_scope(prs, ctx)
-    slide_toc(prs, ctx)
+    def safe(name: str, fn, *args):
+        try:
+            fn(*args)
+        except Exception as e:  # noqa: BLE001
+            errors.append(f"{name}: {type(e).__name__}: {e}")
+            traceback.print_exc()
 
-    slide_dr_explainer(prs, ctx)
-    slide_dr_table(prs, ctx)
-    slide_dr_analysis(prs, ctx)
+    safe("cover", slide_cover, prs, ctx)
+    safe("scope", slide_scope, prs, ctx)
+    safe("toc", slide_toc, prs, ctx)
 
-    slide_traffic_table(prs, ctx)
-    slide_traffic_analysis(prs, ctx)
-    slide_competitor_traffic_analysis(prs, ctx)
+    safe("dr_explainer", slide_dr_explainer, prs, ctx)
+    safe("dr_table", slide_dr_table, prs, ctx)
+    safe("dr_analysis", slide_dr_analysis, prs, ctx)
 
-    slide_keyword_homepage(prs, ctx)
-    slide_keyword_services(prs, ctx)
-    slide_keyword_additional(prs, ctx)
+    safe("traffic_table", slide_traffic_table, prs, ctx)
+    safe("traffic_analysis", slide_traffic_analysis, prs, ctx)
+    safe("competitor_traffic", slide_competitor_traffic_analysis, prs, ctx)
 
-    slide_navigation(prs, ctx)
+    safe("keyword_homepage", slide_keyword_homepage, prs, ctx)
+    safe("keyword_services", slide_keyword_services, prs, ctx)
+    safe("keyword_additional", slide_keyword_additional, prs, ctx)
 
-    slide_content_strategy_intro(prs, ctx)
-    silos = ctx["insights"].get("silos", {}).get("silos", []) or []
+    safe("navigation", slide_navigation, prs, ctx)
+
+    safe("content_intro", slide_content_strategy_intro, prs, ctx)
+    silos_raw = ctx["insights"].get("silos", {})
+    if not isinstance(silos_raw, dict):
+        silos_raw = {}
+    silos = [s for s in (silos_raw.get("silos", []) or []) if isinstance(s, dict)]
     for idx, silo in enumerate(silos, start=1):
-        slide_silo(prs, silo, idx, len(silos))
+        safe(f"silo_{idx}", slide_silo, prs, silo, idx, len(silos))
 
-    slide_gmb_overview(prs, ctx)
-    slide_gmb_modifications(prs, ctx)
+    safe("gmb_overview", slide_gmb_overview, prs, ctx)
+    safe("gmb_modifications", slide_gmb_modifications, prs, ctx)
 
-    slide_seo_scorecard(prs, ctx)
-    slide_seo_per_page(prs, ctx)
-    slide_core_web_vitals(prs, ctx)
+    safe("seo_scorecard", slide_seo_scorecard, prs, ctx)
+    safe("seo_per_page", slide_seo_per_page, prs, ctx)
+    safe("core_web_vitals", slide_core_web_vitals, prs, ctx)
 
-    slide_geo_overview(prs, ctx)
-    slide_ai_crawler_table(prs, ctx)
-    slide_geo_action_plan(prs, ctx)
+    safe("geo_overview", slide_geo_overview, prs, ctx)
+    safe("ai_crawler", slide_ai_crawler_table, prs, ctx)
+    safe("geo_action_plan", slide_geo_action_plan, prs, ctx)
 
-    slide_recommendations(prs, ctx)
-    slide_closing(prs, ctx)
+    safe("recommendations", slide_recommendations, prs, ctx)
+    safe("closing", slide_closing, prs, ctx)
 
     prs.save(out_path)
+
+    # Expose any per-slide errors so the caller can show them in the UI
+    ctx["_slide_errors"] = errors
     return out_path
