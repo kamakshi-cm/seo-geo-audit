@@ -86,6 +86,13 @@ with st.sidebar:
     blogs_per_silo = st.slider("Blogs per silo", 5, 12, 10)
 
     st.divider()
+    skip_dataforseo = st.checkbox(
+        "💸 Skip DataForSEO auto-pull (free test mode)",
+        value=False,
+        help="When ticked, no DataForSEO API calls run — saves credits for the real CEO demo. The deck still generates with empty metric columns; all Gemini analysis (silos, keywords, navigation, GMB, GEO) still works.",
+    )
+
+    st.divider()
     st.caption("ℹ️ The generated .pptx is fully editable in PowerPoint, Google Slides, or Keynote — you can re-style, re-order, edit text, swap images, after download.")
 
 
@@ -314,7 +321,9 @@ if run:
     }
     competitors_metrics = [c for c in competitor_inputs if c["domain"]]
 
-    if dataforseo.is_configured():
+    if skip_dataforseo:
+        log("💸 **Free test mode ON** — skipping all DataForSEO calls (no credits used). Metric columns will be empty.")
+    elif dataforseo.is_configured():
         log("DataForSEO configured — auto-filling missing metrics…")
         dataforseo.reset_errors()
         your_metrics, competitors_metrics = autofill_from_dataforseo(your_domain, your_metrics, competitors_metrics, log_fn=log)
@@ -388,7 +397,7 @@ if run:
 
     # ---- Top pages auto-fill via DataForSEO ----
     your_top_pages = parse_pages_lines(your_top_pages_raw)
-    if not your_top_pages and dataforseo.is_configured():
+    if not your_top_pages and not skip_dataforseo and dataforseo.is_configured():
         log("Auto-pulling your top pages from DataForSEO…")
         your_top_pages = autofill_top_pages(your_domain, your_top_pages)
     if not your_top_pages:
@@ -398,17 +407,11 @@ if run:
     for c in competitors_metrics:
         d = c["domain"]
         pages = parse_pages_lines(competitor_top_raw.get(d, ""))
-        if not pages:
+        if not pages and not skip_dataforseo:
             pages = autofill_top_pages(d, pages)
         competitor_top_pages[d] = pages
 
-    competitor_backlink_samples = {}
-    for c in competitors_metrics:
-        d = c["domain"]
-        bls = parse_backlink_lines(competitor_backlink_raw.get(d, ""))
-        if not bls:
-            bls = autofill_backlinks(d, bls)
-        competitor_backlink_samples[d] = bls
+    competitor_backlink_samples = {}  # No longer used — kept for signature compatibility
 
     competitor_blog_kws = [k.strip() for k in (competitor_blog_keywords_raw or "").splitlines() if k.strip()]
 
