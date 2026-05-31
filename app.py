@@ -541,7 +541,6 @@ if run:
             "keyword_map": insights.keyword_map,
             "navigation": insights.navigation,
             "silos": insights.silos,
-            "backlinks": insights.backlinks,
             "gmb": insights.gmb,
             "technical": insights.technical,
             "geo": insights.geo,
