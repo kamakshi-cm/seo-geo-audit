@@ -7,8 +7,14 @@ maintainability.
 from __future__ import annotations
 
 import io
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from typing import Iterable
+
+IST = timezone(timedelta(hours=5, minutes=30))
+
+
+def now_ist() -> datetime:
+    return datetime.now(IST)
 
 import matplotlib
 matplotlib.use("Agg")
@@ -243,7 +249,7 @@ def slide_cover(prs, ctx):
 
     tb3 = s.shapes.add_textbox(Inches(0.8), Inches(4.4), Inches(12), Inches(0.6))
     p = tb3.text_frame.paragraphs[0]
-    p.text = f"Generated {datetime.now().strftime('%B %d, %Y')}  •  {ctx['pages_analyzed']} pages analyzed  •  {len(ctx['competitors_metrics'])} competitors"
+    p.text = f"Generated {now_ist().strftime('%B %d, %Y')}  •  {ctx['pages_analyzed']} pages analyzed  •  {len(ctx['competitors_metrics'])} competitors"
     p.font.size = Pt(15)
     p.font.color.rgb = LIGHT
 
@@ -1099,7 +1105,7 @@ def slide_closing(prs, ctx):
 
     tb3 = s.shapes.add_textbox(Inches(0.8), Inches(6.5), Inches(12), Inches(0.4))
     p = tb3.text_frame.paragraphs[0]
-    p.text = f"SEO + GEO Strategy & Audit  •  {ctx['domain']}  •  {datetime.now().strftime('%Y-%m-%d')}"
+    p.text = f"SEO + GEO Strategy & Audit  •  {ctx['domain']}  •  {now_ist().strftime('%Y-%m-%d')}"
     p.font.size = Pt(10)
     p.font.color.rgb = LIGHT
 

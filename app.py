@@ -5,8 +5,14 @@ import json
 import os
 import time
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
+
+IST = timezone(timedelta(hours=5, minutes=30))
+
+
+def now_ist() -> datetime:
+    return datetime.now(IST)
 
 import streamlit as st
 from dotenv import load_dotenv
@@ -306,7 +312,7 @@ if run:
     logs: list[str] = []
 
     def log(msg: str):
-        logs.append(f"`{datetime.now().strftime('%H:%M:%S')}`  {msg}")
+        logs.append(f"`{now_ist().strftime('%H:%M:%S')}`  {msg}")
         log_box.markdown("\n\n".join(logs[-15:]))
 
     t_start = time.time()
@@ -568,7 +574,7 @@ if run:
     out_dir = Path("reports")
     out_dir.mkdir(exist_ok=True)
     safe_domain = ctx_site.domain.replace(".", "_").replace(":", "_")
-    out_path = out_dir / f"{safe_domain}_strategy_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pptx"
+    out_path = out_dir / f"{safe_domain}_strategy_{now_ist().strftime('%Y%m%d_%H%M%S')}.pptx"
     build_report(str(out_path), ctx_payload)
 
     overall.progress(100, text="Done!")
